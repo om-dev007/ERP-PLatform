@@ -4,58 +4,32 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
+import { Supabase } from "@/lib/supabaseClient";
 import { 
   GraduationCap, 
-  User, 
-  Users, 
-  Shield,
   AlertCircle,
   Eye,
   EyeOff
 } from "lucide-react";
 
 const Login = () => {
-  const [selectedRole, setSelectedRole] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [resetEmail, setResetEmail] = useState("");
   const [showResetDialog, setShowResetDialog] = useState(false);
+  const [loginError, setLoginError] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  const roles = [
-    {
-      value: "admin",
-      label: "Admin",
-      icon: Shield,
-      description: "Full system access and management",
-      demoCredentials: { email: "admin@college.edu", password: "admin123" }
-    },
-    {
-      value: "staff",
-      label: "Staff",
-      icon: Users,
-      description: "Faculty and staff portal access",
-      demoCredentials: { email: "staff@college.edu", password: "staff123" }
-    },
-    {
-      value: "student",
-      label: "Student",
-      icon: User,
-      description: "Student portal and services",
-      demoCredentials: { email: "student@college.edu", password: "student123" }
-    }
-  ];
 
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
     
-    if (!selectedRole) newErrors.role = "Please select your role";
     if (!email) newErrors.email = "Email is required";
     if (!password) newErrors.password = "Password is required";
     
@@ -63,31 +37,86 @@ const Login = () => {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleLogin = () => {
-    if (validateForm()) {
-      // Demo login logic - check if credentials match demo accounts
-      const selectedRoleData = roles.find(role => role.value === selectedRole);
-      
-      if (selectedRoleData && 
-          email === selectedRoleData.demoCredentials.email && 
-          password === selectedRoleData.demoCredentials.password) {
-        
+  const handleLogin = async () => {
+    if (!validateForm()) return;
+    
+    setIsLoading(true);
+    setLoginError("");
+    
+    try {
+      const { data, error } = await Supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (error) {
+        setLoginError("Invalid email or password ❌");
+        return;
+      }
+
+      if (data.user) {
+        // Check which role-specific table the user exists in
+        let userRole = null;
+        let userName = null;
+
+        // Check admins table first
+        const { data: adminData, error: adminError } = await Supabase
+          .from('admins')
+          .select('name')
+          .eq('id', data.user.id)
+          .single();
+
+        if (!adminError && adminData) {
+          userRole = 'admin';
+          userName = adminData.name;
+        } else {
+          // Check staff table
+          const { data: staffData, error: staffError } = await Supabase
+            .from('staff')
+            .select('name')
+            .eq('id', data.user.id)
+            .single();
+
+          if (!staffError && staffData) {
+            userRole = 'staff';
+            userName = staffData.name;
+          } else {
+            // Check active_students table
+            const { data: studentData, error: studentError } = await Supabase
+              .from('active_students')
+              .select('name')
+              .eq('user_id', data.user.id)
+              .single();
+
+            if (!studentError && studentData) {
+              userRole = 'student';
+              userName = studentData.name;
+            }
+          }
+        }
+
+        // If user not found in any role-specific table, logout and show error
+        if (!userRole) {
+          setLoginError("Invalid credentials or no role assigned.");
+          // Sign out the user since they don't have a valid role
+          await Supabase.auth.signOut();
+          return;
+        }
+
         toast({
           title: "Login Successful!",
-          description: `Welcome to ${selectedRoleData.label} Dashboard`,
+          description: `Welcome back, ${userName || 'User'}!`,
         });
         
-        // Navigate to appropriate dashboard
+        // Navigate to appropriate dashboard based on actual role
         setTimeout(() => {
-          navigate(`/${selectedRole}`);
+          navigate(`/${userRole}-dashboard`);
         }, 1000);
-      } else {
-        toast({
-          title: "Invalid Credentials",
-          description: "Please check your email and password",
-          variant: "destructive"
-        });
       }
+    } catch (error) {
+      setLoginError("Invalid email or password ❌");
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -110,15 +139,6 @@ const Login = () => {
     setResetEmail("");
   };
 
-  const fillDemoCredentials = (role: string) => {
-    const selectedRoleData = roles.find(r => r.value === role);
-    if (selectedRoleData) {
-      setSelectedRole(role);
-      setEmail(selectedRoleData.demoCredentials.email);
-      setPassword(selectedRoleData.demoCredentials.password);
-      setErrors({});
-    }
-  };
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
@@ -133,27 +153,6 @@ const Login = () => {
           <p className="text-muted-foreground">Sign in to access your dashboard</p>
         </div>
 
-        {/* Demo Credentials Info */}
-        <Card className="mb-6 bg-muted/30 border-dashed">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm">Demo Credentials</CardTitle>
-            <CardDescription className="text-xs">Click any role to auto-fill demo credentials</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {roles.map((role) => (
-              <Button 
-                key={role.value}
-                variant="ghost" 
-                size="sm" 
-                className="w-full justify-start text-xs hover:bg-background"
-                onClick={() => fillDemoCredentials(role.value)}
-              >
-                <role.icon className="h-3 w-3 mr-2" />
-                {role.label}: {role.demoCredentials.email}
-              </Button>
-            ))}
-          </CardContent>
-        </Card>
 
         {/* Login Form */}
         <Card className="erp-card">
@@ -162,34 +161,6 @@ const Login = () => {
             <CardDescription>Enter your credentials to access the system</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            {/* Role Selection */}
-            <div className="space-y-2">
-              <Label htmlFor="role">Select Your Role *</Label>
-              <Select value={selectedRole} onValueChange={setSelectedRole}>
-                <SelectTrigger className={errors.role ? "border-destructive" : ""}>
-                  <SelectValue placeholder="Choose your role" />
-                </SelectTrigger>
-                <SelectContent>
-                  {roles.map((role) => (
-                    <SelectItem key={role.value} value={role.value} className="cursor-pointer">
-                      <div className="flex items-center gap-2">
-                        <role.icon className="h-4 w-4" />
-                        <div>
-                          <div className="font-medium">{role.label}</div>
-                          <div className="text-xs text-muted-foreground">{role.description}</div>
-                        </div>
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {errors.role && (
-                <p className="text-sm text-destructive flex items-center gap-1">
-                  <AlertCircle className="h-4 w-4" />
-                  {errors.role}
-                </p>
-              )}
-            </div>
 
             {/* Email */}
             <div className="space-y-2">
@@ -278,9 +249,23 @@ const Login = () => {
               </Dialog>
             </div>
 
+            {/* Login Error */}
+            {loginError && (
+              <div className="text-center">
+                <p className="text-sm text-destructive flex items-center justify-center gap-1">
+                  <AlertCircle className="h-4 w-4" />
+                  {loginError}
+                </p>
+              </div>
+            )}
+
             {/* Login Button */}
-            <Button onClick={handleLogin} className="w-full erp-button-primary">
-              Sign In
+            <Button 
+              onClick={handleLogin} 
+              className="w-full erp-button-primary"
+              disabled={isLoading}
+            >
+              {isLoading ? "Signing In..." : "Sign In"}
             </Button>
 
             {/* Register Link */}

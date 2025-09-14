@@ -121,11 +121,6 @@ const Index = () => {
                   <ChevronRight className="ml-2 h-5 w-5" />
                 </Button>
               </Link>
-              <Link to="/admin">
-                <Button size="lg" variant="outline" className="text-lg px-8 py-6 erp-button-secondary">
-                  View Demo Dashboard
-                </Button>
-              </Link>
             </div>
             
             {/* Trust Indicators */}
@@ -219,13 +214,13 @@ const Index = () => {
             <div>
               <h4 className="font-semibold mb-4">Product</h4>
               <div className="space-y-2">
-                <Link to="/admin" className="block text-muted-foreground hover:text-foreground transition-colors">
+                <Link to="/admin-dashboard" className="block text-muted-foreground hover:text-foreground transition-colors">
                   Admin Dashboard
                 </Link>
-                <Link to="/staff" className="block text-muted-foreground hover:text-foreground transition-colors">
+                <Link to="/staff-dashboard" className="block text-muted-foreground hover:text-foreground transition-colors">
                   Staff Portal
                 </Link>
-                <Link to="/student" className="block text-muted-foreground hover:text-foreground transition-colors">
+                <Link to="/student-dashboard" className="block text-muted-foreground hover:text-foreground transition-colors">
                   Student Portal
                 </Link>
               </div>

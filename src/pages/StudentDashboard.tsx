@@ -1,5 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import DashboardSidebar from "@/components/DashboardSidebar";
+import ProfileSection from "@/components/ProfileSection";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,8 +27,30 @@ import {
 } from "lucide-react";
 
 const StudentDashboard = () => {
-  const [activeSection, setActiveSection] = useState("dashboard");
+  const { section } = useParams<{ section: string }>();
+  const navigate = useNavigate();
+  const location = useLocation();
+  
+  // Get active section from URL or default to 'dashboard'
+  const activeSection = section || "dashboard";
+  
   const { toast } = useToast();
+
+  // Handle section changes and update URL
+  const handleSectionChange = (newSection: string) => {
+    if (newSection === "dashboard") {
+      navigate("/student-dashboard/dashboard");
+    } else {
+      navigate(`/student-dashboard/${newSection}`);
+    }
+  };
+
+  // Handle URL changes and redirect to dashboard if on base route
+  useEffect(() => {
+    if (location.pathname === '/student-dashboard') {
+      navigate('/student-dashboard/dashboard', { replace: true });
+    }
+  }, [location.pathname, navigate]);
 
   // Mock student data
   const studentInfo = {
@@ -759,7 +783,7 @@ const StudentDashboard = () => {
       case "fees": return renderFees();
       case "hostel": return renderHostel();
       case "exams": return renderExams();
-      case "profile": return renderProfile();
+      case "profile": return <ProfileSection />;
       default: return renderDashboardHome();
     }
   };
@@ -769,7 +793,7 @@ const StudentDashboard = () => {
       <DashboardSidebar 
         role="student" 
         activeSection={activeSection} 
-        onSectionChange={setActiveSection} 
+        onSectionChange={handleSectionChange} 
       />
       <main className="flex-1 p-6 overflow-auto">
         {renderContent()}

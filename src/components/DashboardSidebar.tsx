@@ -1,7 +1,9 @@
-import { useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { useToast } from "@/hooks/use-toast";
+import { Supabase } from "@/lib/supabaseClient";
 import { 
   GraduationCap,
   LayoutDashboard,
@@ -17,7 +19,8 @@ import {
   Bell,
   Search,
   Menu,
-  X
+  X,
+  User
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -38,16 +41,82 @@ interface DashboardSidebarProps {
 const DashboardSidebar = ({ role, activeSection, onSectionChange }: DashboardSidebarProps) => {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [pendingAdmissionsCount, setPendingAdmissionsCount] = useState(0);
+  const [isLoadingCount, setIsLoadingCount] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
+  const { toast } = useToast();
+
+  // Fetch pending admissions count
+  const fetchPendingAdmissionsCount = async () => {
+    if (role !== 'admin') return;
+    
+    setIsLoadingCount(true);
+    try {
+      const { count, error } = await Supabase
+        .from('pending_admissions')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'pending');
+
+      if (error) {
+        console.error('Error fetching pending admissions count:', error);
+        return;
+      }
+
+      setPendingAdmissionsCount(count || 0);
+    } catch (error) {
+      console.error('Error fetching pending admissions count:', error);
+    } finally {
+      setIsLoadingCount(false);
+    }
+  };
+
+  // Fetch count on component mount and when activeSection changes to admissions
+  useEffect(() => {
+    fetchPendingAdmissionsCount();
+  }, [role, activeSection]);
+
+  // Set up real-time subscription for pending_admissions table
+  useEffect(() => {
+    if (role !== 'admin') return;
+
+    const channel = Supabase
+      .channel('pending_admissions_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'pending_admissions'
+        },
+        () => {
+          // Refetch count when there are changes
+          fetchPendingAdmissionsCount();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      Supabase.removeChannel(channel);
+    };
+  }, [role]);
 
   const sidebarItems: Record<string, SidebarItem[]> = {
     admin: [
       { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-      { id: "admissions", label: "Admissions", icon: Users, badge: "New", notifications: 5 },
+      { 
+        id: "admissions", 
+        label: "Admissions", 
+        icon: Users, 
+        badge: pendingAdmissionsCount > 0 ? "NEW" : undefined, 
+        notifications: pendingAdmissionsCount > 0 ? pendingAdmissionsCount : undefined 
+      },
       { id: "fees", label: "Fee Management", icon: DollarSign },
       { id: "hostel", label: "Hostel", icon: Building },
       { id: "exams", label: "Exams", icon: FileText },
       { id: "reports", label: "Reports", icon: Calendar },
+      { id: "profile", label: "Profile", icon: User },
       { id: "settings", label: "Settings", icon: Settings },
     ],
     staff: [
@@ -55,6 +124,7 @@ const DashboardSidebar = ({ role, activeSection, onSectionChange }: DashboardSid
       { id: "attendance", label: "Attendance", icon: Users },
       { id: "exams", label: "Exams", icon: FileText, notifications: 3 },
       { id: "reports", label: "Reports", icon: Calendar },
+      { id: "profile", label: "Profile", icon: User },
       { id: "settings", label: "Settings", icon: Settings },
     ],
     student: [
@@ -62,18 +132,52 @@ const DashboardSidebar = ({ role, activeSection, onSectionChange }: DashboardSid
       { id: "fees", label: "Fees", icon: DollarSign, badge: "Due" },
       { id: "hostel", label: "Hostel", icon: Building },
       { id: "exams", label: "Exams", icon: FileText },
-      { id: "profile", label: "Profile", icon: Settings },
+      { id: "profile", label: "Profile", icon: User },
     ]
   };
 
   const items = sidebarItems[role] || [];
+
+  const handleLogout = async () => {
+    setIsLoggingOut(true);
+    try {
+      const { error } = await Supabase.auth.signOut();
+      if (error) {
+        toast({
+          title: "Logout Failed",
+          description: "There was an error logging out. Please try again.",
+          variant: "destructive"
+        });
+        return;
+      }
+      
+      toast({
+        title: "Logged Out Successfully",
+        description: "You have been logged out of your account.",
+      });
+      
+      // Navigate to login page
+      navigate("/login");
+    } catch (error) {
+      toast({
+        title: "Logout Failed",
+        description: "There was an error logging out. Please try again.",
+        variant: "destructive"
+      });
+    } finally {
+      setIsLoggingOut(false);
+    }
+  };
 
   const SidebarContent = () => (
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="p-4 border-b border-border">
         <div className="flex items-center justify-between">
-          <Link to="/" className="flex items-center gap-2">
+          <button 
+            onClick={() => navigate(`/${role}-dashboard/dashboard`)}
+            className="flex items-center gap-2 hover:opacity-80 transition-opacity"
+          >
             <GraduationCap className="h-8 w-8 text-primary" />
             {!collapsed && (
               <div>
@@ -81,7 +185,7 @@ const DashboardSidebar = ({ role, activeSection, onSectionChange }: DashboardSid
                 <p className="text-xs text-muted-foreground capitalize">{role} Portal</p>
               </div>
             )}
-          </Link>
+          </button>
           {!collapsed && (
             <Button
               variant="ghost"
@@ -133,9 +237,9 @@ const DashboardSidebar = ({ role, activeSection, onSectionChange }: DashboardSid
                         {item.badge}
                       </Badge>
                     )}
-                    {item.notifications && (
+                    {item.notifications !== undefined && item.notifications > 0 && (
                       <div className="bg-destructive text-destructive-foreground text-xs rounded-full h-5 w-5 flex items-center justify-center">
-                        {item.notifications}
+                        {isLoadingCount && item.id === 'admissions' ? '...' : item.notifications}
                       </div>
                     )}
                   </div>
@@ -155,18 +259,18 @@ const DashboardSidebar = ({ role, activeSection, onSectionChange }: DashboardSid
           </div>
         )}
         
-        <Link to="/login">
-          <Button
-            variant="ghost"
-            className={cn(
-              "w-full justify-start text-muted-foreground hover:text-foreground",
-              collapsed && "justify-center"
-            )}
-          >
-            <LogOut className="h-4 w-4" />
-            {!collapsed && <span className="ml-2">Logout</span>}
-          </Button>
-        </Link>
+        <Button
+          variant="ghost"
+          onClick={handleLogout}
+          disabled={isLoggingOut}
+          className={cn(
+            "w-full justify-start text-muted-foreground hover:text-foreground",
+            collapsed && "justify-center"
+          )}
+        >
+          <LogOut className="h-4 w-4" />
+          {!collapsed && <span className="ml-2">{isLoggingOut ? "Logging out..." : "Logout"}</span>}
+        </Button>
       </div>
     </div>
   );
@@ -195,10 +299,13 @@ const DashboardSidebar = ({ role, activeSection, onSectionChange }: DashboardSid
       <div className="md:hidden">
         {/* Mobile Header */}
         <div className="flex items-center justify-between p-4 border-b border-border bg-sidebar">
-          <Link to="/" className="flex items-center gap-2">
+          <button 
+            onClick={() => navigate(`/${role}-dashboard/dashboard`)}
+            className="flex items-center gap-2 hover:opacity-80 transition-opacity"
+          >
             <GraduationCap className="h-6 w-6 text-primary" />
             <span className="text-lg font-bold">EduFlow</span>
-          </Link>
+          </button>
           <Button
             variant="ghost"
             size="sm"
